@@ -22,3 +22,8 @@ Thumbs.db
 *.swo
 .coverage
 test.db
+*.log
+logs/
+log/
+*.log.*
+*~

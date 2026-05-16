@@ -7,7 +7,7 @@ import pytest
 from nats.aio.client import Client as NATS
 
 from orchestrator.orchestrator import Orchestrator
-from orchestrator.models import create_appointment_task, Task, Result
+from orchestrator.models import create_appointment_task
 
 logging.basicConfig(level=logging.INFO)
 

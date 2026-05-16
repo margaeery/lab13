@@ -1,13 +1,14 @@
 import asyncio
 import json
-import logging
-from typing import Any, Optional
+from typing import Optional
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
 
 from .models import Task, Result
+from .logger import setup_logging
+from .metrics import Metrics
 
-logger = logging.getLogger(__name__)
+logger = setup_logging("orchestrator")
 
 
 class Orchestrator:
@@ -21,38 +22,47 @@ class Orchestrator:
         self.nc: Optional[NATS] = None
         self.sub: Optional[Subscription] = None
         self._pending: dict[str, asyncio.Future] = {}
+        self.metrics = Metrics()
 
     async def connect(self) -> None:
         self.nc = NATS()
         await self.nc.connect(self.nats_url)
         self.sub = await self.nc.subscribe("tasks.completed", cb=self._on_result)
-        logger.info("orchestrator connected")
+        logger.info("connected to NATS at %s", self.nats_url)
 
     async def disconnect(self) -> None:
         if self.sub:
             await self.sub.unsubscribe()
         if self.nc:
             await self.nc.close()
-        logger.info("orchestrator disconnected")
+        stats = self.metrics.tasks_processed
+        logger.info("disconnected, tasks_processed=%d", stats)
 
     async def send_task(self, task: Task) -> Result:
         if not self.nc or self.nc.is_closed:
+            logger.error("send_task failed: not connected")
             raise RuntimeError("orchestrator not connected")
 
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[task.id] = future
 
-        await self.nc.publish(
-            f"tasks.{task.type}",
-            json.dumps(task.to_dict()).encode(),
-        )
-        logger.info("task sent: %s", task.id)
+        subject = f"tasks.{task.type}"
+        await self.nc.publish(subject, json.dumps(task.to_dict()).encode())
+        logger.info("task sent | task_id=%s subject=%s", task.id, subject)
 
         try:
             result_data = await asyncio.wait_for(future, timeout=self.timeout)
-            return Result.from_dict(result_data)
+            self.metrics.increment()
+            result = Result.from_dict(result_data)
+            logger.info(
+                "task completed | task_id=%s success=%s",
+                task.id,
+                result.success,
+            )
+            return result
         except asyncio.TimeoutError:
-            logger.warning("task timeout: %s", task.id)
+            self.metrics.increment()
+            logger.error("task timeout | task_id=%s timeout=%.1fs", task.id, self.timeout)
             return Result(
                 task_id=task.id,
                 success=False,
@@ -67,14 +77,17 @@ class Orchestrator:
             data = json.loads(msg.data.decode())
             task_id = data.get("task_id")
             if not task_id:
+                logger.warning("result without task_id ignored")
                 return
 
             future = self._pending.pop(task_id, None)
             if future and not future.done():
                 future.set_result(data)
-                logger.info("result received: %s", task_id)
+                logger.debug("result matched | task_id=%s", task_id)
+            else:
+                logger.debug("result unmatched | task_id=%s", task_id)
         except Exception as e:
-            logger.error("failed to process result: %s", e)
+            logger.error("failed to process incoming result: %s", e)
 
     async def __aenter__(self):
         await self.connect()
