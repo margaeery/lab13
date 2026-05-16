@@ -10,15 +10,20 @@ from .metrics import Metrics
 
 logger = setup_logging("orchestrator")
 
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_TIMEOUT = 10.0
+
 
 class Orchestrator:
     def __init__(
         self,
         nats_url: str = "nats://localhost:4222",
-        timeout: float = 10.0,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ):
         self.nats_url = nats_url
         self.timeout = timeout
+        self.max_retries = max_retries
         self.nc: Optional[NATS] = None
         self.sub: Optional[Subscription] = None
         self._pending: dict[str, asyncio.Future] = {}
@@ -35,42 +40,74 @@ class Orchestrator:
             await self.sub.unsubscribe()
         if self.nc:
             await self.nc.close()
-        stats = self.metrics.tasks_processed
-        logger.info("disconnected, tasks_processed=%d", stats)
+        logger.info(
+            "disconnected, tasks_processed=%d retries=%d",
+            self.metrics.tasks_processed,
+            self.metrics.retries,
+        )
 
     async def send_task(self, task: Task) -> Result:
         if not self.nc or self.nc.is_closed:
             logger.error("send_task failed: not connected")
             raise RuntimeError("orchestrator not connected")
 
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
-        self._pending[task.id] = future
+        for attempt in range(1, self.max_retries + 1):
+            future: asyncio.Future = asyncio.get_event_loop().create_future()
+            self._pending[task.id] = future
 
-        subject = f"tasks.{task.type}"
-        await self.nc.publish(subject, json.dumps(task.to_dict()).encode())
-        logger.info("task sent | task_id=%s subject=%s", task.id, subject)
-
-        try:
-            result_data = await asyncio.wait_for(future, timeout=self.timeout)
-            self.metrics.increment()
-            result = Result.from_dict(result_data)
+            subject = f"tasks.{task.type}"
+            await self.nc.publish(subject, json.dumps(task.to_dict()).encode())
             logger.info(
-                "task completed | task_id=%s success=%s",
+                "task sent | task_id=%s subject=%s attempt=%d/%d",
                 task.id,
-                result.success,
+                subject,
+                attempt,
+                self.max_retries,
             )
-            return result
-        except asyncio.TimeoutError:
-            self.metrics.increment()
-            logger.error("task timeout | task_id=%s timeout=%.1fs", task.id, self.timeout)
-            return Result(
-                task_id=task.id,
-                success=False,
-                output=None,
-                error="timeout",
-            )
-        finally:
-            self._pending.pop(task.id, None)
+
+            try:
+                result_data = await asyncio.wait_for(future, timeout=self.timeout)
+                self.metrics.increment()
+                result = Result.from_dict(result_data)
+                logger.info(
+                    "task completed | task_id=%s success=%s",
+                    task.id,
+                    result.success,
+                )
+                return result
+            except asyncio.TimeoutError:
+                self._pending.pop(task.id, None)
+                if attempt < self.max_retries:
+                    self.metrics.record_retry()
+                    logger.warning(
+                        "task timeout, retrying | task_id=%s attempt=%d/%d timeout=%.1fs",
+                        task.id,
+                        attempt,
+                        self.max_retries,
+                        self.timeout,
+                    )
+                else:
+                    self.metrics.increment()
+                    logger.error(
+                        "task exhausted all retries | task_id=%s max_retries=%d timeout=%.1fs",
+                        task.id,
+                        self.max_retries,
+                        self.timeout,
+                    )
+                    return Result(
+                        task_id=task.id,
+                        success=False,
+                        output=None,
+                        error="timeout",
+                    )
+
+        self.metrics.increment()
+        return Result(
+            task_id=task.id,
+            success=False,
+            output=None,
+            error="timeout",
+        )
 
     async def _on_result(self, msg) -> None:
         try:
