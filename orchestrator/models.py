@@ -31,12 +31,14 @@ class Result:
     task_id: str
     success: bool
     output: Any
+    agent_id: Optional[str] = None
     error: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Result":
         return cls(
             task_id=data["task_id"],
+            agent_id=data.get("agent_id"),
             success=data["success"],
             output=data.get("output"),
             error=data.get("error"),

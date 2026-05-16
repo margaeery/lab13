@@ -21,14 +21,16 @@ type Agent struct {
 	processor *AppointmentProcessor
 	nc        *nats.Conn
 	logger    *Logger
+	id        string
 	tasks     atomic.Int64
 }
 
-func NewAgent(processor *AppointmentProcessor, nc *nats.Conn, logger *Logger) *Agent {
+func NewAgent(processor *AppointmentProcessor, nc *nats.Conn, logger *Logger, id string) *Agent {
 	return &Agent{
 		processor: processor,
 		nc:        nc,
 		logger:    logger,
+		id:        id,
 	}
 }
 
@@ -41,6 +43,7 @@ func (a *Agent) Run() error {
 			a.logger.Error("unmarshal task failed: %v", err)
 			a.publishResult(Result{
 				TaskID:  "",
+				AgentID: a.id,
 				Success: false,
 				Output:  "invalid task format",
 			})
@@ -51,6 +54,7 @@ func (a *Agent) Run() error {
 			a.logger.Error("unsupported task type: %s", task.Type)
 			a.publishResult(Result{
 				TaskID:  task.ID,
+				AgentID: a.id,
 				Success: false,
 				Output:  "unsupported task type",
 			})
@@ -62,22 +66,24 @@ func (a *Agent) Run() error {
 			a.logger.Error("unmarshal payload failed: %v", err)
 			a.publishResult(Result{
 				TaskID:  task.ID,
+				AgentID: a.id,
 				Success: false,
 				Output:  "invalid payload format",
 			})
 			return
 		}
 
-		a.logger.Info("processing task_id=%s", task.ID)
+		a.logger.Info("processing task_id=%s agent_id=%s", task.ID, a.id)
 		result := a.processor.Process(task.ID, payload)
-		a.logger.Info("task done task_id=%s success=%v processed=%d", task.ID, result.Success, a.tasks.Load())
+		result.AgentID = a.id
+		a.logger.Info("task done task_id=%s success=%v agent_id=%s processed=%d", task.ID, result.Success, a.id, a.tasks.Load())
 		a.publishResult(result)
 	})
 	if err != nil {
 		return err
 	}
 
-	a.logger.Info("agent started, listening on %s", subjectAppointment)
+	a.logger.Info("agent started, id=%s listening on %s", a.id, subjectAppointment)
 	return nil
 }
 
@@ -109,9 +115,19 @@ func main() {
 	defer nc.Close()
 
 	validator := NewAppointmentValidator()
-	store := NewInMemorySlotStore()
+	store := NewFileSlotStore(os.Getenv("SLOT_STORE_PATH"))
 	processor := NewAppointmentProcessor(validator, store)
-	agent := NewAgent(processor, nc, logger)
+	agentID := os.Getenv("AGENT_ID")
+	if agentID == "" {
+		hostname, err := os.Hostname()
+		if err == nil && hostname != "" {
+			agentID = hostname
+		} else {
+			agentID = "agent"
+		}
+	}
+
+	agent := NewAgent(processor, nc, logger, agentID)
 
 	if err := agent.Run(); err != nil {
 		log.Fatalf("agent run failed: %v", err)

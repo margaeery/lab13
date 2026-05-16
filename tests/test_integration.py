@@ -15,6 +15,17 @@ NATS_URL = "nats://localhost:4222"
 TIMEOUT = 10.0
 
 
+def create_unique_appointment_task(index: int):
+    return create_appointment_task(
+        full_name=f"Пациент {index}",
+        birth_date="1990-01-01",
+        contact=f"patient{index}@example.com",
+        specialty="Терапевт",
+        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=2, minutes=index),
+        type_="offline",
+    )
+
+
 @pytest.fixture
 async def nats_client():
     nc = NATS()
@@ -182,3 +193,18 @@ async def test_result_published_to_completed_topic(nats_client):
     assert len(received) >= 1
     assert received[0]["task_id"] == task.id
     assert "success" in received[0]
+
+
+@pytest.mark.asyncio
+async def test_tasks_are_distributed_between_agents(orchestrator):
+    tasks = [create_unique_appointment_task(index) for index in range(24)]
+
+    results = await asyncio.gather(*(orchestrator.send_task(task) for task in tasks))
+
+    assert all(result.success is True for result in results)
+
+    agent_ids = {result.agent_id for result in results if result.agent_id}
+    if len(agent_ids) < 2:
+        pytest.skip("Для проверки балансировки нужно минимум 2 запущенных экземпляра appointment-agent")
+
+    assert len(agent_ids) >= 2

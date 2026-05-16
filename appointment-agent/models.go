@@ -13,6 +13,7 @@ type Task struct {
 
 type Result struct {
 	TaskID  string      `json:"task_id"`
+	AgentID string      `json:"agent_id,omitempty"`
 	Success bool        `json:"success"`
 	Output  interface{} `json:"output"`
 }
