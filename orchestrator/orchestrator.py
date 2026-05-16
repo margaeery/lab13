@@ -5,7 +5,7 @@ from typing import Any, Optional
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
 
-from models import Task, Result, create_appointment_task
+from .models import Task, Result
 
 logger = logging.getLogger(__name__)
 

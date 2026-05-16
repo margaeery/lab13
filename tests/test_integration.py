@@ -1,17 +1,13 @@
 import asyncio
 import json
 import logging
-import sys
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "orchestrator"))
 
 import pytest
 from nats.aio.client import Client as NATS
 
-from orchestrator import Orchestrator
-from models import create_appointment_task, Task, Result
+from orchestrator.orchestrator import Orchestrator
+from orchestrator.models import create_appointment_task, Task, Result
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,11 +15,7 @@ NATS_URL = "nats://localhost:4222"
 TIMEOUT = 10.0
 
 
-import pytest
-import pytest_asyncio
-
-
-@pytest_asyncio.fixture
+@pytest.fixture
 async def nats_client():
     nc = NATS()
     await nc.connect(NATS_URL)
@@ -31,7 +23,7 @@ async def nats_client():
     await nc.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def orchestrator():
     orch = Orchestrator(nats_url=NATS_URL, timeout=TIMEOUT)
     await orch.connect()
@@ -100,6 +92,7 @@ async def test_duplicate_slot_rejected(orchestrator):
     )
 
     result1 = await orchestrator.send_task(task1)
+    await asyncio.sleep(0.5)
     result2 = await orchestrator.send_task(task2)
 
     assert result1.success is True
