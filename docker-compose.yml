@@ -19,5 +19,19 @@ services:
     volumes:
       - appointment-agent-data:/app/data
 
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      ORCHESTRATOR_TIMEOUT: 10
+      ORCHESTRATOR_MAX_RETRIES: 3
+    depends_on:
+      - nats
+      - appointment-agent
+    ports:
+      - "8000:8000"
+
 volumes:
   appointment-agent-data:
