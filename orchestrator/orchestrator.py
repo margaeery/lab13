@@ -52,7 +52,7 @@ class Orchestrator:
             raise RuntimeError("orchestrator not connected")
 
         for attempt in range(1, self.max_retries + 1):
-            future: asyncio.Future = asyncio.get_event_loop().create_future()
+            future: asyncio.Future = asyncio.get_running_loop().create_future()
             self._pending[task.id] = future
 
             subject = f"tasks.{task.type}"
@@ -100,14 +100,6 @@ class Orchestrator:
                         output=None,
                         error="timeout",
                     )
-
-        self.metrics.increment()
-        return Result(
-            task_id=task.id,
-            success=False,
-            output=None,
-            error="timeout",
-        )
 
     async def _on_result(self, msg) -> None:
         try:

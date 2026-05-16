@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type AppointmentProcessor struct {
 	validator Validator
@@ -59,6 +62,7 @@ func (p *AppointmentProcessor) resolveLocation(payload AppointmentPayload) strin
 }
 
 func hashSpecialty(s string) int {
+	s = strings.ToLower(strings.TrimSpace(s))
 	h := 0
 	for _, c := range s {
 		h = 31*h + int(c)

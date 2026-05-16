@@ -41,12 +41,6 @@ func (a *Agent) Run() error {
 		var task Task
 		if err := json.Unmarshal(msg.Data, &task); err != nil {
 			a.logger.Error("unmarshal task failed: %v", err)
-			a.publishResult(Result{
-				TaskID:  "",
-				AgentID: a.id,
-				Success: false,
-				Output:  "invalid task format",
-			})
 			return
 		}
 

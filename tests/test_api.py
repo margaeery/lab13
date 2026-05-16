@@ -1,5 +1,7 @@
+import pytest
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.dependencies import get_task_service
@@ -8,6 +10,13 @@ from orchestrator.models import Result
 
 
 app.state.skip_orchestrator_lifespan = True
+
+
+@pytest.fixture(autouse=True)
+def clear_dependency_overrides():
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
 
 
 class SuccessService:
@@ -65,8 +74,6 @@ def test_create_appointment_success():
     with TestClient(app) as client:
         response = client.post("/tasks/appointment", json=build_payload())
 
-    app.dependency_overrides.clear()
-
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert response.json()["agent_id"] == "agent-1"
@@ -78,10 +85,8 @@ def test_create_appointment_returns_bad_request_for_business_error():
     with TestClient(app) as client:
         response = client.post("/tasks/appointment", json=build_payload())
 
-    app.dependency_overrides.clear()
-
     assert response.status_code == 400
-    assert response.json()["detail"]["output"] == "slot is already booked"
+    assert response.json()["output"] == "slot is already booked"
 
 
 def test_create_appointment_returns_gateway_timeout():
@@ -89,8 +94,6 @@ def test_create_appointment_returns_gateway_timeout():
 
     with TestClient(app) as client:
         response = client.post("/tasks/appointment", json=build_payload())
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 504
     assert response.json()["detail"] == "task execution timed out"
@@ -101,8 +104,6 @@ def test_create_appointment_returns_service_unavailable():
 
     with TestClient(app) as client:
         response = client.post("/tasks/appointment", json=build_payload())
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 503
     assert response.json()["detail"] == "orchestrator not connected"
@@ -117,8 +118,6 @@ def test_create_appointment_returns_unprocessable_entity_for_invalid_body():
     with TestClient(app) as client:
         response = client.post("/tasks/appointment", json=invalid_payload)
 
-    app.dependency_overrides.clear()
-
     assert response.status_code == 422
 
 
@@ -127,8 +126,6 @@ def test_healthcheck():
 
     with TestClient(app) as client:
         response = client.get("/health")
-
-    app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}

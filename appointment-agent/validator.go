@@ -19,6 +19,12 @@ func (v *AppointmentValidator) Validate(payload AppointmentPayload) error {
 	if payload.FullName == "" {
 		return errors.New("full name is required")
 	}
+	if payload.BirthDate == "" {
+		return errors.New("birth date is required")
+	}
+	if payload.Contact == "" {
+		return errors.New("contact is required")
+	}
 	if payload.Specialty == "" {
 		return errors.New("specialty is required")
 	}

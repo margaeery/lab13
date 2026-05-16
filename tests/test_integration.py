@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -15,13 +16,22 @@ NATS_URL = "nats://localhost:4222"
 TIMEOUT = 10.0
 
 
+def unique_future_time(days: int, minutes: int = 0) -> datetime:
+    seconds = uuid.uuid4().int % 3600
+    return datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+        days=days,
+        minutes=minutes,
+        seconds=seconds,
+    )
+
+
 def create_unique_appointment_task(index: int):
     return create_appointment_task(
         full_name=f"Пациент {index}",
         birth_date="1990-01-01",
         contact=f"patient{index}@example.com",
         specialty="Терапевт",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=2, minutes=index),
+        preferred_date_time=unique_future_time(days=2, minutes=index),
         type_="offline",
     )
 
@@ -44,12 +54,13 @@ async def orchestrator():
 
 @pytest.mark.asyncio
 async def test_successful_appointment_booking(orchestrator):
+    preferred_time = unique_future_time(days=2)
     task = create_appointment_task(
         full_name="Иванов Иван Иванович",
         birth_date="1990-01-01",
         contact="ivan@example.com",
         specialty="Терапевт",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=2),
+        preferred_date_time=preferred_time,
         type_="offline",
     )
 
@@ -64,12 +75,13 @@ async def test_successful_appointment_booking(orchestrator):
 
 @pytest.mark.asyncio
 async def test_online_appointment_booking(orchestrator):
+    preferred_time = unique_future_time(days=3)
     task = create_appointment_task(
         full_name="Петров Петр Петрович",
         birth_date="1985-05-15",
         contact="petr@example.com",
         specialty="Кардиолог",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=3),
+        preferred_date_time=preferred_time,
         type_="online",
     )
 
@@ -82,7 +94,7 @@ async def test_online_appointment_booking(orchestrator):
 
 @pytest.mark.asyncio
 async def test_duplicate_slot_rejected(orchestrator):
-    same_time = datetime.now(timezone.utc) + timedelta(days=5)
+    same_time = unique_future_time(days=5)
 
     task1 = create_appointment_task(
         full_name="Пациент А",
@@ -103,7 +115,6 @@ async def test_duplicate_slot_rejected(orchestrator):
     )
 
     result1 = await orchestrator.send_task(task1)
-    await asyncio.sleep(0.5)
     result2 = await orchestrator.send_task(task2)
 
     assert result1.success is True
@@ -130,12 +141,13 @@ async def test_past_date_rejected(orchestrator):
 
 @pytest.mark.asyncio
 async def test_invalid_type_rejected(orchestrator):
+    preferred_time = unique_future_time(days=1)
     task = create_appointment_task(
         full_name="Кузнецов Кузьма",
         birth_date="1995-07-10",
         contact="kuzma@example.com",
         specialty="Дерматолог",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=1),
+        preferred_date_time=preferred_time,
         type_="invalid_type",
     )
 
@@ -147,12 +159,13 @@ async def test_invalid_type_rejected(orchestrator):
 
 @pytest.mark.asyncio
 async def test_empty_name_rejected(orchestrator):
+    preferred_time = unique_future_time(days=1)
     task = create_appointment_task(
         full_name="",
         birth_date="1995-07-10",
         contact="empty@example.com",
         specialty="Офтальмолог",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=1),
+        preferred_date_time=preferred_time,
         type_="offline",
     )
 
@@ -168,10 +181,12 @@ async def test_result_published_to_completed_topic(nats_client):
     await orch.connect()
 
     received = []
+    received_event = asyncio.Event()
 
     async def handler(msg):
         data = json.loads(msg.data.decode())
         received.append(data)
+        received_event.set()
 
     sub = await nats_client.subscribe("tasks.completed", cb=handler)
 
@@ -180,12 +195,12 @@ async def test_result_published_to_completed_topic(nats_client):
         birth_date="1980-01-01",
         contact="test@example.com",
         specialty="Уролог",
-        preferred_date_time=datetime.now(timezone.utc) + timedelta(days=4),
+        preferred_date_time=unique_future_time(days=4),
         type_="offline",
     )
 
     await orch.send_task(task)
-    await asyncio.sleep(1)
+    await asyncio.wait_for(received_event.wait(), timeout=TIMEOUT)
 
     await sub.unsubscribe()
     await orch.disconnect()

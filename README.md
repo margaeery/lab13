@@ -90,6 +90,7 @@ lab13/
 ├── appointment-agent/
 │   ├── .dockerignore        # Исключения для сборки Docker-образа агента
 │   ├── Dockerfile           # Образ Go-агента
+│   ├── entrypoint.sh        # Точка входа для Docker-контейнера агента
 │   ├── go.mod               # Описание Go-модуля
 │   ├── go.sum               # Зафиксированные Go-зависимости
 │   ├── logger.go            # Логирование агента
@@ -108,10 +109,12 @@ lab13/
 │   └── requirements.txt     # Зависимости оркестратора
 ├── tests/
 │   ├── __init__.py
+│   ├── pytest.ini           # Конфигурация pytest для тестов
 │   ├── requirements.txt     # Зависимости для тестов
 │   ├── test_api.py          # Позитивные и негативные тесты REST API
 │   ├── test_integration.py  # Интеграционные тесты связки API, оркестратора и агента
 │   └── test_orchestrator_unit.py  # Unit-тесты оркестратора с моками NATS
+├── .gitignore               # Исключения для Git
 ├── docker-compose.yml       # Локальная инфраструктура NATS, API и агента
 ├── PROMPT_LOG.md            # Лог промптов по заданиям лабораторной работы
 ├── pytest.ini               # Конфигурация pytest
